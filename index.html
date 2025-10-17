@@ -1,69 +1,98 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>GitHub User Creation Date</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GitHub User Lookup</title>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="mb-4">GitHub User Creation Date</h1>
-        <form id="github-user-123" class="row g-3">
-            <div class="col-md-6">
-                <label for="username" class="form-label">GitHub Username</label>
-                <input type="text" class="form-control" id="username" name="username" placeholder="Enter GitHub username" required>
-            </div>
-            <div class="col-md-6">
-                <label for="token" class="form-label">Token (Optional)</label>
-                <input type="text" class="form-control" id="token" name="token" placeholder="Enter GitHub token">
-            </div>
-            <div class="col-12">
-                <button type="submit" class="btn btn-primary">Fetch Creation Date</button>
-            </div>
-        </form>
-        <div id="github-created-at" class="mt-4 fs-5"></div>
+    <h1>GitHub User Lookup</h1>
+    <input type="text" id="username" placeholder="Enter GitHub username" />
+    <button id="lookup">Lookup</button>
+    <div id="github-status" aria-live="polite" style="margin: 1em 0; color: blue;"></div>
+    <div>
+        <strong>Account Age:</strong> <span id="github-account-age">N/A</span> years
     </div>
-
     <script>
-        document.getElementById('github-user-123').addEventListener('submit', async function(event) {
-            event.preventDefault();
-            const username = this.username.value.trim();
-            const token = this.token.value.trim();
-            const output = document.getElementById('github-created-at');
-            output.textContent = '';
+        const statusEl = document.getElementById('github-status');
+        const ageEl = document.getElementById('github-account-age');
+        const usernameInput = document.getElementById('username');
+        const lookupBtn = document.getElementById('lookup');
+
+        function setStatus(message) {
+            statusEl.textContent = message;
+        }
+
+        function calculateAccountAgeYears(createdAt) {
+            const createdDate = new Date(createdAt);
+            const now = new Date();
+            let years = now.getFullYear() - createdDate.getFullYear();
+            // Check if the month and day have not yet reached this year
+            if (
+                now.getMonth() < createdDate.getMonth() ||
+                (now.getMonth() === createdDate.getMonth() && now.getDate() < createdDate.getDate())
+            ) {
+                years--;
+            }
+            return years;
+        }
+
+        function cacheUser(username, data) {
+            try {
+                localStorage.setItem(`github-user-${username}`, JSON.stringify(data));
+            } catch (e) {
+                // localStorage might fail (e.g. private mode)
+            }
+        }
+
+        function getCachedUser(username) {
+            try {
+                const item = localStorage.getItem(`github-user-${username}`);
+                if (item) {
+                    return JSON.parse(item);
+                }
+                return null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        async function lookupUser() {
+            const username = usernameInput.value.trim();
             if (!username) {
-                output.textContent = 'Please enter a GitHub username.';
+                setStatus('Please enter a GitHub username.');
                 return;
             }
-            let url = `https://api.github.com/users/${encodeURIComponent(username)}`;
-            const headers = {};
-            if (token) {
-                headers['Authorization'] = `token ${token}`;
+
+            setStatus('Looking up...');
+            ageEl.textContent = 'N/A';
+
+            // Check cache first
+            const cached = getCachedUser(username);
+            if (cached) {
+                setStatus('Loaded cached user data.');
+                ageEl.textContent = calculateAccountAgeYears(cached.created_at);
+                return;
             }
+
             try {
-                const response = await fetch(url, { headers });
-                if (!response.ok) {
-                    if (response.status === 404) {
-                        output.textContent = 'User not found.';
-                    } else if (response.status === 401 || response.status === 403) {
-                        output.textContent = 'Authentication failed or rate-limited.';
-                    } else {
-                        output.textContent = `Error: ${response.status} ${response.statusText}`;
-                    }
-                    return;
+                const resp = await fetch(`https://api.github.com/users/${encodeURIComponent(username)}`);
+                if (!resp.ok) {
+                    throw new Error(`${resp.status} ${resp.statusText}`);
                 }
-                const data = await response.json();
-                if (!data.created_at) {
-                    output.textContent = 'Creation date not available.';
-                    return;
-                }
-                const createdAtUTC = new Date(data.created_at).toISOString().slice(0, 10);
-                output.textContent = `Account Creation Date (UTC): ${createdAtUTC}`;
-            } catch (error) {
-                output.textContent = 'An error occurred while fetching data.';
+                const data = await resp.json();
+                setStatus('Lookup succeeded.');
+                const accountAgeYears = calculateAccountAgeYears(data.created_at);
+                ageEl.textContent = accountAgeYears;
+
+                cacheUser(username, data);
+            } catch (err) {
+                setStatus('Lookup failed.');
+                ageEl.textContent = 'N/A';
             }
-        });
+        }
+
+        lookupBtn.addEventListener('click', lookupUser);
     </script>
 </body>
 </html>
